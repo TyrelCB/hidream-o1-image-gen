@@ -251,6 +251,27 @@ def _round32(n: int) -> int:
     return (n // 32) * 32
 
 
+# HiDream O1 supported (width, height) pairs in order of total pixels
+_O1_RESOLUTIONS = [
+    (2048, 2048),
+    (2304, 1728), (1728, 2304),
+    (2304, 1792), (1792, 2304),
+    (2496, 1664), (1664, 2496),
+    (2560, 1440), (1440, 2560),
+    (3104, 1312), (1312, 3104),
+]
+
+
+def _nearest_o1_resolution(w: int, h: int) -> tuple[int, int]:
+    """Return the O1 native resolution closest in aspect ratio and pixel count."""
+    aspect = w / h
+    best = min(
+        _O1_RESOLUTIONS,
+        key=lambda r: abs(r[0] / r[1] - aspect) * 10 + abs(r[0] * r[1] - w * h) / 1e6,
+    )
+    return best
+
+
 def _build_view_url(img_info: dict) -> str:
     from urllib.parse import urlencode
     params = {
@@ -383,19 +404,8 @@ async def edit_image(
     async with httpx.AsyncClient(timeout=60.0) as client:
         image_filename, orig_w, orig_h = await _upload_image(client, image_path)
 
-        # Scale to ~4MP then round dimensions to multiples of 32
-        mp = orig_w * orig_h
-        target_mp = 4_000_000
-        if mp > target_mp:
-            scale = (target_mp / mp) ** 0.5
-            w = _round32(int(orig_w * scale))
-            h = _round32(int(orig_h * scale))
-        else:
-            w = _round32(orig_w)
-            h = _round32(orig_h)
-
-        w = max(w, 64)
-        h = max(h, 64)
+        # Snap to the nearest HiDream O1 native resolution based on input aspect ratio
+        w, h = _nearest_o1_resolution(orig_w, orig_h)
 
         workflow = _img2img_workflow(
             prompt=prompt,
